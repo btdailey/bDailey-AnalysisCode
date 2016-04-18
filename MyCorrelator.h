@@ -146,9 +146,8 @@ class MyCorrelator
   TGraph *nofillNotchFilter(TGraph *grWave, Double_t minFreq, Double_t maxFreq);
   TGraph *wienerFilter(TGraph *grWave, Double_t minFreq, Double_t maxFreq, int ant, int pol,double *baseY);
   TGraph *interpolatedFilter(TGraph *grWave, Double_t minFreq, Double_t maxFreq);
-  void ShiftPhase(int ant,int pol,std::vector<double> Freq,std::vector<double> bandWidth);
   void InterpPhase(int ant,int pol,std::vector<double> Freq,std::vector<double> bandWidth);
-  void ShiftPhase1(int ant,int pol,std::vector<double> Freq,std::vector<double> bandWidth, std::vector<double> cutFreqs);
+  void GeomMethod(int ant,int pol,std::vector<double> Freq,std::vector<double> bandWidth, std::vector<double> cutFreqs);
   double solveGamma_plus(double theta, double psi, double delta);
   double solveGamma_minus(double theta, double psi, double delta);
   double getCoherentPolarization(TGraph *grV, TGraph *grH, double &polarizationFraction);

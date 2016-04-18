@@ -6924,8 +6924,8 @@ int MyCorrelator::pointThisEvent(int eventNumber, int drawMaps, TNtuple *ndata, 
       }//k
       
 	if(phase_flag==3 || phase_flag==4){
-	  if(uniquefreqs1.size()>0) ShiftPhase1(i,0,uniquefreqs1, uniquebandwidth,uniquePhase);
-	  if(uniquefreqsHoriz1.size()>0) ShiftPhase1(i,1,uniquefreqsHoriz1, uniquebandwidthHoriz,uniquePhaseHoriz);
+	  if(uniquefreqs1.size()>0) GeomMethod(i,0,uniquefreqs1, uniquebandwidth,uniquePhase);
+	  if(uniquefreqsHoriz1.size()>0) GeomMethod(i,1,uniquefreqsHoriz1, uniquebandwidthHoriz,uniquePhaseHoriz);
 	}
 
 	/*
@@ -13031,7 +13031,7 @@ double MyCorrelator::solveGamma_minus(double theta, double psi, double delta){
   return gamma; 
 }
 
-void MyCorrelator::ShiftPhase1(int ant,int pol,vector<double> Freq,vector<double> bandWidth,vector<double> cutFreqs){
+void MyCorrelator::GeomMethod(int ant,int pol,vector<double> Freq,vector<double> bandWidth,vector<double> cutFreqs){
   double minFreq;// = Freq - bandWidth;
   double maxFreq;// = Freq + bandWidth;
   double magFFT[2000]={0};
@@ -13073,49 +13073,52 @@ void MyCorrelator::ShiftPhase1(int ant,int pol,vector<double> Freq,vector<double
   double average_x;
   double average_y;
   int num_avg=0;
-    deltaT=times[1]-times[0];
+
+  //Get Fourier Transform
+
+  deltaT=times[1]-times[0];
    
-    newLength=(length/2)+1;
-    deltaF=1/(deltaT*length); //GHz
-    deltaF*=1e3; //MHz
+  newLength=(length/2)+1;
+  deltaF=1/(deltaT*length); //GHz
+  deltaF*=1e3; //MHz
+  
+  FFTWComplex *theFFT=FFTtools::doFFT(length,volts);
+  
+  //cout<<"Freq is "<<Freq[0]<<"\n";
+  for(int i=0;i<newLength;i++) {
+    if (i==0) frequencyArray[i]=0;
+    if (i>0) frequencyArray[i]=frequencyArray[i-1]+deltaF;//make a freq Array. 
     
-    FFTWComplex *theFFT=FFTtools::doFFT(length,volts);
     
-    //cout<<"Freq is "<<Freq[0]<<"\n";
-    for(int i=0;i<newLength;i++) {
-      if (i==0) frequencyArray[i]=0;
-      if (i>0) frequencyArray[i]=frequencyArray[i-1]+deltaF;//make a freq Array. 
+    if (frequencyArray[i]>=200 && frequencyArray[i]<=1200){
       
-     
-      if (frequencyArray[i]>=200 && frequencyArray[i]<=1200){
-	
-	magFFT[i] = sqrt(pow(theFFT[i].re,2)+pow(theFFT[i].im,2));
-	phase_single[i]=atan2(theFFT[i].im,theFFT[i].re);
-	phase_single[i]=phase_single[i];//+2*TMath::Pi()*k_unwrap;
-
-	phase_single_unshifted[i]=atan2(theFFT[i].im,theFFT[i].re);
-	phase_new[i]=phase_single[i];
-
-      }//>200 <1200
+      magFFT[i] = sqrt(pow(theFFT[i].re,2)+pow(theFFT[i].im,2));
+      phase_single[i]=atan2(theFFT[i].im,theFFT[i].re);
+      phase_single[i]=phase_single[i];//+2*TMath::Pi()*k_unwrap;
       
+      phase_single_unshifted[i]=atan2(theFFT[i].im,theFFT[i].re);
+      phase_new[i]=phase_single[i];
       
-      else{
-	phase_single[i]=0.;
-	phase_single_unshifted[i]=0.;
-	magFFT[i]=-1000;
-      }
+    }//>200 <1200
       
-    }//i  
-
-    for(int i=0;i<newLength;i++) {
+    
+    else{
+      phase_single[i]=0.;
+      phase_single_unshifted[i]=0.;
+      magFFT[i]=-1000;
+    }
+    
+  }//i  
+  
+  for(int i=0;i<newLength;i++) {
     if (frequencyArray[i]>=200 && frequencyArray[i]<=1200){
       magFFT_dB[i]=10*log10(sqrt(magFFT[i]/double(1))/10.);//correct RMS
     }    
     else {
       magFFT_dB[i]=-1000;
-     
+      
     }
-   
+    
   }
   
     double mean_mag;
@@ -13135,14 +13138,14 @@ void MyCorrelator::ShiftPhase1(int ant,int pol,vector<double> Freq,vector<double
     for(int j=0;j<(int)Freq.size();j++){
       lower_bounds.clear();
       upper_bounds.clear();
-      minFreq = Freq[j]-(bandWidth[j]);
-      maxFreq = Freq[j]+(bandWidth[j]);
+      minFreq = Freq[j]-(bandWidth[j]);//start of notch region
+      maxFreq = Freq[j]+(bandWidth[j]);//end of notch region
      
-
+      //set vectors that contain where notched regions are
       for(int k=0;k<(int)cutFreqs.size();k++){
 	if(cutFreqs[k] > minFreq && cutFreqs[k]<maxFreq){
-	  lower_bounds.push_back(cutFreqs[k]-deltaF);
-	  upper_bounds.push_back(cutFreqs[k]+deltaF);
+	  lower_bounds.push_back(cutFreqs[k]-deltaF);//one bin to left of step (needed to make sure we dont include step in average)
+	  upper_bounds.push_back(cutFreqs[k]+deltaF);//one bin to right of step (neede to make sure we dont include step in average)
 	}
       }//k
 
@@ -13152,26 +13155,26 @@ void MyCorrelator::ShiftPhase1(int ant,int pol,vector<double> Freq,vector<double
       int k_lower=0;
       int pass_flag=0;
      
-      
+      //start process
       for(int i=0;i<newLength;i++){//lowest freq in range to start of notch
 
 	val_max=TMath::Pi()/2.;
 	val_min=TMath::Pi()/2.;
 
-	if(frequencyArray[i]>=minFreq && frequencyArray[i]<=maxFreq){
+	if(frequencyArray[i]>=minFreq && frequencyArray[i]<=maxFreq){//if inside notched region
 	  one_flag=0;
 	  two_flag=0;
 	  pass_flag=0;
 	 
-	  if(frequencyArray[i] > upper_bounds[k_lower]+1){
+	  if(frequencyArray[i] > upper_bounds[k_lower]+1){//increment to next region
 	      k_lower++;
 	  }
 	 
-	  if(frequencyArray[i] < lower_bounds[k_lower]) {
+	  if(frequencyArray[i] < lower_bounds[k_lower]) {//can do all freqs up to bin before step
 	    pass_flag=1;
 	  }
 	
-	  if(pass_flag==1){
+	  if(pass_flag==1){//calculate average for method. Want to use up to 7 bins for average, but cannot include where jump occurs so samples is not constant
 	    
 	    average_x = theFFT[i].re+theFFT[i-1].re + theFFT[i+1].re;
 	    average_y = theFFT[i].im+theFFT[i-1].im + theFFT[i+1].im;
@@ -13180,11 +13183,11 @@ void MyCorrelator::ShiftPhase1(int ant,int pol,vector<double> Freq,vector<double
 	    num_avg=3;
 	  }
 
-	  pass_flag=0;
+	  pass_flag=0;//being careful about flags?
 	 
 	  if(one_flag==1){
 	    pass_flag=1;
-	    for(int k=0;k<(int)cutFreqs.size();k++){
+	    for(int k=0;k<(int)cutFreqs.size();k++){//can we expand average out one more bin on either side?
 	      if(frequencyArray[i-2] > cutFreqs[k]-1 && frequencyArray[i-2] < cutFreqs[k]+1 ){
 		pass_flag=0;
 	      }
@@ -13193,7 +13196,7 @@ void MyCorrelator::ShiftPhase1(int ant,int pol,vector<double> Freq,vector<double
 	      }
 	    }//k
 	    if(pass_flag==1){
-	     
+	      //yes we can
 	      average_x = average_x + theFFT[i-2].re + theFFT[i+2].re;
 	      average_y = average_y + theFFT[i-2].im + theFFT[i+2].im;
 	      mean_mag = mean_mag + magFFT[i-2] + magFFT[i+2];
@@ -13205,7 +13208,7 @@ void MyCorrelator::ShiftPhase1(int ant,int pol,vector<double> Freq,vector<double
 	  
 	  if(two_flag==1){
 	    pass_flag=1;
-	    for(int k=0;k<(int)cutFreqs.size();k++){
+	    for(int k=0;k<(int)cutFreqs.size();k++){//if we expanded to 5 bins for average, can we go to 7 bins?
 	      if(frequencyArray[i-3] > cutFreqs[k]-1 && frequencyArray[i-3] < cutFreqs[k]+1){
 		pass_flag=0;
 	      }
@@ -13214,7 +13217,7 @@ void MyCorrelator::ShiftPhase1(int ant,int pol,vector<double> Freq,vector<double
 	      }
 	    }//k
 	    if(pass_flag==1){
-	     
+	      //yes
 	      average_x = average_x + theFFT[i-3].re + theFFT[i+3].re;
 	      average_y = average_y + theFFT[i-3].im + theFFT[i+3].im;
 	      mean_mag = mean_mag + magFFT[i-3] + magFFT[i+3];
@@ -13222,7 +13225,7 @@ void MyCorrelator::ShiftPhase1(int ant,int pol,vector<double> Freq,vector<double
 	    }
 	  }
 
-	  
+	  //get average mag and phase
 	  average_x = average_x/num_avg;
 	  average_y = average_y/num_avg;
 	  mean_mag = mean_mag/num_avg;
@@ -13230,13 +13233,15 @@ void MyCorrelator::ShiftPhase1(int ant,int pol,vector<double> Freq,vector<double
 	  average_phase = atan2(average_y,average_x);
 	 
 	  delta = abs(average_phase - phase_single[i]);
-	  
+	  //do solution of phasor equation
+
+	  //DO I NEED BOTH EQUATIONS WITH MY SIMPLIFICATION?
 	  val1 = solveGamma_plus(average_phase, phase_single[i], delta);
 	  val2 = solveGamma_minus(average_phase, phase_single[i], delta);
-	 if(val1 != val1 && val2 != val2){
+	  if(val1 != val1 && val2 != val2){//somethign went wrong!
 	   cout<<"Problem! val1,val2 = "<<val1<<" " <<val2<<" mean, phase_single, delta are "<<average_phase<<" "<<phase_single[i]<<" "<<average_x<<" "<<average_y<<"\n";
 	  }
-	
+	  /////////SINCE CHANGE OF FORMULA, DONT KNOW IF WE NEED THIS ANYMORE.
 	   if(cos(val1-mean_mag) > cos(val2-mean_mag)){
 	     val_max += val1;
 	     val_min += val2;
@@ -13246,8 +13251,8 @@ void MyCorrelator::ShiftPhase1(int ant,int pol,vector<double> Freq,vector<double
 	     val_min+=val1;
 	   }
 	  
-	  
-	   if(val1 == val1 && val2 == val2 && one_flag==1){
+	   //DOES VAL_MIN==VAL_MAX?
+	   if(val1 == val1 && val2 == val2 && one_flag==1){//being careful about NaNs
 	     if(magFFT[i]>=mean_mag){
 	       phase_new[i]=val_max;
 	       
@@ -13265,7 +13270,7 @@ void MyCorrelator::ShiftPhase1(int ant,int pol,vector<double> Freq,vector<double
      
     }//j=Freq.size
 
-   
+    //change the Fourier components
     double x;
     double y;
     for(int i=0;i<newLength;i++){
@@ -13278,6 +13283,7 @@ void MyCorrelator::ShiftPhase1(int ant,int pol,vector<double> Freq,vector<double
 	
       }
     }
+    //FFT back
     double *filteredVals = FFTtools::doInvFFT(length,theFFT);
     TGraph *grTime = new TGraph(length,times,volts);
     double *times1 = grTime->GetX();
@@ -13297,7 +13303,7 @@ void MyCorrelator::ShiftPhase1(int ant,int pol,vector<double> Freq,vector<double
     delete grTime;
    
   
-}//shift phase
+}//geommethod
 void MyCorrelator::DrawFreqDomain(TGraph *gr, int eventnumber,char *namer){
   
   double magFFT[2000];
@@ -13415,466 +13421,7 @@ void MyCorrelator::GetHealPixMap(){
 
   
 }
-/////////////////////////////////
-void MyCorrelator::ShiftPhase(int ant,int pol,vector<double> Freq,vector<double> bandWidth){
-  double minFreq;// = Freq - bandWidth;
-  double maxFreq;// = Freq + bandWidth;
-  double magFFT[2000]={0};
-  double magFFT_dB[2000]={0};
-  double frequencyArray[2000]={0};
-  double deltaT, deltaF;
-  int length;
-  int newLength;
-  double phase_single[2000];
-  double phase_single_unshifted[2000];
-  
-  
-  double *times;
-  double *volts;
- 
-  int i_post=-10;
-  int i_pre=-10;
-  int notchwidth=-10;
-  double delta;
-  double mean_high=0;
-  double mean_low=0;
-  int num_samples=10;
-  if(pol==0){
-    length = grEv[ant]->GetN();
-  }
-  else if(pol==1){
-    length = grEvHoriz[ant]->GetN();
-  }
 
-   if(pol==0){
-    times = grEv[ant]->GetX();
-    volts = grEv[ant]->GetY();
-   
-  }
-  else if(pol==1){
-    times = grEvHoriz[ant]->GetX();
-    volts = grEvHoriz[ant]->GetY();
-  }
- 
-  TGraph *grTime = new TGraph(length,times,volts);
-  grTime->SetLineWidth(3);
-  grTime->GetXaxis()->SetTitle("Time (ns)");
-  grTime->GetYaxis()->SetTitle("Volts (mV)");
-  TH2F *haxes_phase = new TH2F("axes_phase",";Frequency (MHz);Phase (Radians)",10,0,1400,10,-4,4);
-  TH2F *haxes_mag = new TH2F("axes_phase1",";Frequency (MHz);Magnitude (dB)",10,0,1400,10,-20,40);
-    ////////finished time shift
- 
-  TGraph *grPhase;
-  TGraph *grPhase_unshifted;
-  int index_start=-1;
-  int index_end=-1;
-  
-    deltaT=times[1]-times[0];
-   
-    newLength=(length/2)+1;
-    deltaF=1/(deltaT*length); //GHz
-    deltaF*=1e3; //MHz
-    
-    FFTWComplex *theFFT=FFTtools::doFFT(length,volts);
-   
-   
-    for(int i=0;i<newLength;i++) {
-      if (i==0) frequencyArray[i]=0;
-      if (i>0) frequencyArray[i]=frequencyArray[i-1]+deltaF;//make a freq Array. 
-      
-      if(frequencyArray[i]>=200 && index_start <0){
-	index_start =i;
-      }
-      if(frequencyArray[i]<=1200){
-	index_end =i;
-      }
-      if (frequencyArray[i]>=200 && frequencyArray[i]<=1200){
-	
-	magFFT[i] = sqrt(pow(theFFT[i].re,2)+pow(theFFT[i].im,2));
-	phase_single[i]=atan2(theFFT[i].im,theFFT[i].re);
-	/*if((phase_single[i] - phase_single[i-1])>TMath::Pi()){
-	  phase_single[i]=phase_single[i]-2*TMath::Pi();
-	}
-
-	if( (phase_single[i] - phase_single[i-1]) < -1*TMath::Pi()){
-	  phase_single[i]=phase_single[i]+2*TMath::Pi();
-	  }*/
-	phase_single_unshifted[i]=atan2(theFFT[i].im,theFFT[i].re);
-	
-      }//>200 <1200
-      
-      
-      else{
-	phase_single[i]=0.;
-	phase_single_unshifted[i]=0.;
-	magFFT[i]=-1000;
-      }
-      
-    }//i  
-
-    for(int i=0;i<newLength;i++) {
-    if (frequencyArray[i]>=200 && frequencyArray[i]<=1200){
-      magFFT_dB[i]=10*log10(sqrt(magFFT[i]/double(1))/10.);//correct RMS
-     
-      //if (pol==0) magFFT[i]=10*log10(sqrt(magFFT[i])/double(NUM_ANTS_WITH_NADIRS-1)/10.);//old way
-      //if (pol==1) magFFT[i]=10*log10(sqrt(magFFT[i])/double(NUM_ANTS_WITH_NADIRS)/10.);//old way
-    }    
-    else {
-      magFFT_dB[i]=-1000;
-     
-    }
-   
-  }
-    
-    TGraph *grMag = new TGraph(newLength,frequencyArray,magFFT_dB);
-    grPhase_unshifted = new TGraph(newLength,frequencyArray,phase_single);
-    grPhase_unshifted->SetLineWidth(2);
-    /*TCanvas *c0 = new TCanvas("c0","c0",800,800);
-    c0->Divide(1,3);
-    c0->cd(1);
-    grTime->Draw("AL");
-    c0->cd(2);
-    haxes_mag->Draw();
-    grMag->Draw("same");
-    c0->cd(3);
-    haxes_phase->Draw();
-    grPhase_unshifted->Draw("same");
-    c0->Print("Time_mag_phase.png");
-    */
-    double next_Freq=0;
-    double current_Freq;
-    int i_freq=0;
-    double mean=0.;
-    int n_mean=0;
-    double mean_offset;
-    for(int j=0;j<Freq.size();j++){
-     
-      minFreq = Freq[j]-bandWidth[j];
-      maxFreq = Freq[j]+bandWidth[j];
-      current_Freq=Freq[j];
-       if(j+1 >=Freq.size()){
-	next_Freq=1200;
-      }
-      else{
-      next_Freq = Freq[j+1]-bandWidth[j+1];
-      }
-      
-      
-      /////////////Move each part to same mean
-      i_pre =-10;
-      i_post =-10;
-      notchwidth = (int)ceil(2*bandWidth[j]/deltaF);
-
-     
-      mean_high=0.;
-      mean_low=0.;
-      if(phase_flag==3){
-	/*	if(phase_flag==3){
-       if(j==0){
-	 mean=0;
-	 n_mean=0;
-	 for(int i=0;i<newLength;i++){
-	   if (frequencyArray[i]>=minFreq && frequencyArray[i]<current_Freq){
-	     mean+=phase_single[i];
-	     n_mean++;
-	   }
-	 }
-	
-	 
-       }//j==0
-
-       mean_offset = mean/n_mean;
-        for(int i=0;i<newLength;i++){
-	 if (frequencyArray[i]>current_Freq-1 && frequencyArray[i]<current_Freq+1){
-	   phase_single[i]=mean_offset;
-	 }
-       }
-       
-       
-       mean=0;
-       n_mean=0;
-       for(int i=0;i<newLength;i++){
-	 if (frequencyArray[i]>current_Freq && frequencyArray[i]<maxFreq){
-	   mean+=phase_single[i];
-	   n_mean++;
-	 }
-       }
-       mean = mean/n_mean;
-       
-       for(int i=0;i<newLength;i++){
-	 if (frequencyArray[i]>current_Freq && frequencyArray[i]<maxFreq){
-	   phase_single[i]=phase_single[i]-mean+mean_offset;
-	 }
-       }
-       mean=0;
-       n_mean=0;
-       for(int i=0;i<newLength;i++){
-	 if (frequencyArray[i]>=maxFreq && frequencyArray[i]<next_Freq){
-	   mean+=phase_single[i];
-	   n_mean++;
-	 }
-       }
-       mean = mean/n_mean;
-
-       for(int i=0;i<newLength;i++){
-	 if (frequencyArray[i]>=maxFreq && frequencyArray[i]<next_Freq){
-	   phase_single[i]=phase_single[i]-mean+mean_offset;
-	 }
-	
-       }
-     
-     }//if phase_number==3
-      ///Part to shift each portion of phase to zero mean
-     if(phase_flag==4){
-	*/
-       mean=0;
-       n_mean=0;
-       if(j==0){
-	 for(int i=0;i<newLength;i++){//lowest freq in range to start of notch
-	   if (frequencyArray[i]>=200 && frequencyArray[i]<minFreq){
-	     mean+=phase_single[i];
-	     
-	     n_mean++;
-	   }
-	 }
-	 mean = mean/n_mean;
-	 for(int i=0;i<newLength;i++){
-	   if (frequencyArray[i]>=200 && frequencyArray[i]<minFreq){
-	     phase_single[i]=phase_single[i]-mean;
-	     
-	   }
-	 }
-       }//j==0
-       mean=0;
-       n_mean=0;
-       
-       for(int i=0;i<newLength;i++){//start of notch to middle of notch
-	 if (frequencyArray[i]>=minFreq && frequencyArray[i]<current_Freq){
-	   mean+=phase_single[i];
-	   n_mean++;
-	 }
-       }
-       mean = mean/n_mean;
-       for(int i=0;i<newLength;i++){
-	 if (frequencyArray[i]>=minFreq && frequencyArray[i]<current_Freq){
-	   phase_single[i]=phase_single[i]-mean;
-	   
-	 }
-       }
-       
-       
-       for(int i=0;i<newLength;i++){
-	 if (frequencyArray[i]>current_Freq-1 && frequencyArray[i]<current_Freq+1){
-	   phase_single[i]=0;
-	   
-	 }
-       }
-       
-       
-       mean=0;
-       n_mean=0;
-       for(int i=0;i<newLength;i++){
-	 if (frequencyArray[i]>current_Freq && frequencyArray[i]<maxFreq){
-	   mean+=phase_single[i];
-	   n_mean++;
-	 }
-       }
-       mean = mean/n_mean;
-       
-       for(int i=0;i<newLength;i++){
-	 if (frequencyArray[i]>current_Freq && frequencyArray[i]<maxFreq){
-	   phase_single[i]=phase_single[i]-mean;
-	   
-	 }
-       }
-       
-       mean=0;
-       n_mean=0;
-       for(int i=0;i<newLength;i++){
-	 if (frequencyArray[i]>=maxFreq && frequencyArray[i]<next_Freq){
-	   mean+=phase_single[i];
-	   n_mean++;
-	 }
-       }
-       mean = mean/n_mean;
-        for(int i=0;i<newLength;i++){
-	 if (frequencyArray[i]>=maxFreq && frequencyArray[i]<next_Freq){
-	   phase_single[i]=phase_single[i]-mean;
-	   
-	 }
-       }
-      }//phase number==3
-
-      
-     
-     //////////mean before notch, mean after notch
-      if(j+1 >=Freq.size()){
-	next_Freq=1200;
-      }
-      else{
-	next_Freq = Freq[j+1];
-      }
-      
-
-
-      /*
-      if(phase_flag==3){
-       if(j==0){
-	 mean=0;
-	 n_mean=0;
-	 for(int i=0;i<newLength;i++){
-	   if (frequencyArray[i]>=minFreq && frequencyArray[i]<current_Freq){
-	     mean+=phase_single[i];
-	     n_mean++;
-	   }
-	 }
-	
-	 
-       }//j==0
-
-       mean_offset = mean/n_mean;
-        for(int i=0;i<newLength;i++){
-	 if (frequencyArray[i]>current_Freq-1 && frequencyArray[i]<current_Freq+1){
-	   phase_single[i]=mean_offset;
-	 }
-       }
-       
-       
-       mean=0;
-       n_mean=0;
-       for(int i=0;i<newLength;i++){
-	 if (frequencyArray[i]>current_Freq && frequencyArray[i]<next_Freq){
-	   mean+=phase_single[i];
-	   n_mean++;
-	 }
-       }
-       mean = mean/n_mean;
-       
-       for(int i=0;i<newLength;i++){
-	 if (frequencyArray[i]>current_Freq && frequencyArray[i]<next_Freq){
-	   phase_single[i]=phase_single[i]-mean+mean_offset;
-	 }
-       }
-      
-     
-       }//if phase_number==3
-      */
-      ///Part to shift each portion of phase to zero mean
-     if(phase_flag==4){
-      cout<<"SIMPLE MEAN! \n";
-       mean=0;
-       n_mean=0;
-       if(j==0){
-	 for(int i=0;i<newLength;i++){//lowest freq in range to start of notch
-	   if (frequencyArray[i]>=200 && frequencyArray[i]<current_Freq){
-	     mean+=phase_single[i];
-	     
-	     n_mean++;
-	   }
-	 }
-	 mean = mean/n_mean;
-	 for(int i=0;i<newLength;i++){
-	   if (frequencyArray[i]>=200 && frequencyArray[i]<current_Freq){
-	     phase_single[i]=phase_single[i]-mean;
-	     
-	   }
-	 }
-       }//j==0
-      
-       for(int i=0;i<newLength;i++){
-	 if (frequencyArray[i]>current_Freq-1 && frequencyArray[i]<current_Freq+1){
-	   phase_single[i]=0;
-	   
-	 }
-       }
-       
-       
-       mean=0;
-       n_mean=0;
-       for(int i=0;i<newLength;i++){
-	 if (frequencyArray[i]>current_Freq && frequencyArray[i]<next_Freq){
-	   mean+=phase_single[i];
-	   n_mean++;
-	 }
-       }
-       mean = mean/n_mean;
-       
-       for(int i=0;i<newLength;i++){
-	 if (frequencyArray[i]>current_Freq && frequencyArray[i]<next_Freq){
-	   phase_single[i]=phase_single[i]-mean;
-	   
-	 }
-       }
-       
-     }//phase number==4
-     
-
-    }//j=Freq.size
-
-   
-    grPhase = new TGraph(newLength,frequencyArray,phase_single);
-    //grPhase->SetLineColor(kRed);
-    grPhase->SetLineWidth(2);
-   
-
-    double x;
-    double y;
-    for(int i=0;i<newLength;i++){
-      if (frequencyArray[i]>=200 && frequencyArray[i]<=1200){
-	x = magFFT[i]*cos(phase_single[i]);
-	y = magFFT[i]*sin(phase_single[i]);
-	
-	theFFT[i].re = x;
-	theFFT[i].im = y;
-	
-      }
-    }
-    double *filteredVals = FFTtools::doInvFFT(length,theFFT);
-    
-    for(int i=0;i<length;i++){
-      volts[i] = filteredVals[i];
-    }
-    double *times1 = grTime->GetX();
-    delete grEv[ant];
-    grEv[ant] = new TGraph(length,times1,filteredVals);
-    TGraph *grtime_shifted = new TGraph(length,times1,filteredVals);
-    grtime_shifted->GetXaxis()->SetTitle("Time (ns)");
-    grtime_shifted->GetYaxis()->SetTitle("Voltage (mV)");
-    //grtime_shifted->SetLineColor(kRed);
-    grtime_shifted->SetLineWidth(2);
-    
-
-
-    delete [] theFFT;
-    delete [] filteredVals;
-    
-    char printer[256];
-    
-    /* TCanvas *c1 = new TCanvas("c1","c1",800,800);
-     c1->Divide(1,3);
-    c1->cd(1);
-    //grTime->Draw("AL");
-    grtime_shifted->Draw("AL");
-    c1->cd(2);
-    haxes_mag->Draw();
-    grMag->Draw("same");
-    c1->cd(3);
-    haxes_phase->Draw();
-    //grPhase_unshifted->Draw("same");
-    grPhase->Draw("same");
-    
-    sprintf(printer,"phase_shift_%d.png",ant);
-    c1->Print(printer);
-    */
-    delete grTime;
-    delete grtime_shifted;
-    delete haxes_phase;
-    delete haxes_mag;
-    delete grMag;
-    delete grPhase;
-    delete grPhase_unshifted;
-
-}//shift phase
 void MyCorrelator::InterpPhase(int ant,int pol,vector<double> Freq,vector<double> bandWidth){
   double minFreq;// = Freq - bandWidth;
   double maxFreq;// = Freq + bandWidth;
